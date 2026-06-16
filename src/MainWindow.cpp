@@ -17,8 +17,8 @@ MainWindow::MainWindow(QWidget* parent)
     : QWidget(parent)
 {
     setWindowTitle(QStringLiteral("multiRecordGdiDemo - 主窗 (6 WebView)"));
-    resize(720, 580);
-    setMinimumSize(680, 520);
+    resize(1200, 800);
+    setMinimumSize(1200, 800);
     setAttribute(Qt::WA_NativeWindow);
     setStyleSheet(QStringLiteral("background-color: #1a1a2e; color: #eaeaea;"));
 
@@ -30,7 +30,8 @@ MainWindow::MainWindow(QWidget* parent)
     layout->addWidget(title);
 
     auto* hint = new QLabel(
-        QStringLiteral("固定画布 1920×1080；仅主窗时 contain 居中填满；多窗时主窗 60%%、子窗均分 40%%，间距 0。\n"
+        QStringLiteral("固定画布 1920×1080；仅主窗时 contain 居中填满；多窗时主窗 60%%、子窗均分 40%%。\n"
+                       "子窗 >2 时：主窗槽位面积 60%%（等比 contain），前 2 子窗右上，其余第 2 排。\n"
                        "槽内 contain 居中，不裁剪。\n"
                        "子窗开关 500ms 防抖后重排槽位，录制不中断。停止后 ffmpeg 编码 H.264 FLV。"),
         this);

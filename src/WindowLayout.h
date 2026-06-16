@@ -19,6 +19,8 @@
 struct DemoChildPreset {
     static constexpr int kMaxChildren = 6;
     static constexpr float kMainWidthRatio = 0.60f;
+    static constexpr float kMainAreaRatio = 0.60f;
+    static constexpr float kMainRowHeightRatio = 0.65f;
     static constexpr float kChildWidthRatioTotal = 0.40f;
 
     static QString label(int childId);
