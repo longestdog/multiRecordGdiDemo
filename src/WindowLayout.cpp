@@ -28,19 +28,6 @@ QSize DemoChildPreset::defaultSize(int childId)
     }
 }
 
-float DemoChildPreset::minScale(int childId)
-{
-    switch (childId) {
-    case 1: return 0.60f;
-    case 2: return 0.55f;
-    case 3: return 0.55f;
-    case 4: return 0.60f;
-    case 5: return 0.55f;
-    case 6: return 0.55f;
-    default: return 0.60f;
-    }
-}
-
 int DemoChildPreset::priority(int childId)
 {
     return childId;
@@ -73,7 +60,8 @@ void WindowLayoutManager::setMainWindow(HWND hwnd)
     committedLayoutKey_.clear();
     lock.unlock();
     emit pendingChanged();
-    commitPendingLayout();
+    if (hwnd)
+        commitPendingLayout();
 }
 
 void WindowLayoutManager::setPendingChild(int childId, HWND hwnd)
@@ -129,7 +117,6 @@ LayoutResult WindowLayoutManager::computeLayout(HWND main, const QVector<HWND>& 
     mainIn.id = 0;
     mainIn.srcW = mainSize.width();
     mainIn.srcH = mainSize.height();
-    mainIn.minScale = DemoChildPreset::kMainMinScale;
     mainIn.priority = 0;
     inputs.append(mainIn);
 
@@ -147,7 +134,6 @@ LayoutResult WindowLayoutManager::computeLayout(HWND main, const QVector<HWND>& 
         childIn.id = childId;
         childIn.srcW = size.width();
         childIn.srcH = size.height();
-        childIn.minScale = DemoChildPreset::minScale(childId);
         childIn.priority = DemoChildPreset::priority(childId);
         inputs.append(childIn);
     }
@@ -156,17 +142,85 @@ LayoutResult WindowLayoutManager::computeLayout(HWND main, const QVector<HWND>& 
     config.canvasW = kCanvasWidth;
     config.canvasH = kCanvasHeight;
     config.slotGap = kChildSpacing;
-    config.dynamicUpscale = false;
-    config.paginateWhenChildGt5 = true;
+    config.mainWidthRatio = DemoChildPreset::kMainWidthRatio;
+    config.childWidthRatioTotal = DemoChildPreset::kChildWidthRatioTotal;
     return LayoutSolver::compute(inputs, config);
+}
+
+void WindowLayoutManager::buildFallbackSlots(HWND main, const QVector<HWND>& children)
+{
+    committedSlots_.clear();
+    committedLayout_ = LayoutResult();
+    committedLayout_.canvasW = kCanvasWidth;
+    committedLayout_.canvasH = kCanvasHeight;
+    committedLayout_.pageCount = 1;
+    committedLayout_.pageIndex = 0;
+
+    if (!main || !IsWindow(main)) {
+        committedLayout_.ok = false;
+        return;
+    }
+
+    QVector<HWND> childHwnds;
+    for (int i = 0; i < children.size(); ++i) {
+        const HWND hwnd = children[i];
+        if (hwnd && IsWindow(hwnd))
+            childHwnds.append(hwnd);
+    }
+
+    const int childCount = childHwnds.size();
+    if (childCount <= 0) {
+        DemoWindowSlot mainSlot;
+        mainSlot.windowId = 0;
+        mainSlot.hwnd = main;
+        mainSlot.slotWidth = kCanvasWidth;
+        mainSlot.slotHeight = kCanvasHeight;
+        committedSlots_.append(mainSlot);
+        committedLayout_.ok = true;
+        committedLayout_.rowCount = 1;
+        return;
+    }
+
+    const int mainW = static_cast<int>(kCanvasWidth * DemoChildPreset::kMainWidthRatio + 0.5);
+    const int childTotalW = kCanvasWidth - mainW;
+    const int baseChildW = childTotalW / childCount;
+    const int childRemainder = childTotalW % childCount;
+
+    DemoWindowSlot mainSlot;
+    mainSlot.windowId = 0;
+    mainSlot.hwnd = main;
+    mainSlot.slotX = 0;
+    mainSlot.slotY = 0;
+    mainSlot.slotWidth = mainW;
+    mainSlot.slotHeight = kCanvasHeight;
+    committedSlots_.append(mainSlot);
+
+    int x = mainW;
+    for (int i = 0; i < childCount; ++i) {
+        const int slotW = baseChildW + (i < childRemainder ? 1 : 0);
+        DemoWindowSlot slot;
+        slot.windowId = i + 1;
+        slot.hwnd = childHwnds[i];
+        slot.slotX = x;
+        slot.slotY = 0;
+        slot.slotWidth = slotW;
+        slot.slotHeight = kCanvasHeight;
+        committedSlots_.append(slot);
+        x += slotW;
+    }
+
+    committedLayout_.ok = true;
+    committedLayout_.rowCount = 1;
 }
 
 void WindowLayoutManager::rebuildCommittedSlots(HWND main, const QVector<HWND>& children)
 {
     committedSlots_.clear();
     committedLayout_ = computeLayout(main, children);
-    if (!committedLayout_.ok)
+    if (!committedLayout_.ok) {
+        buildFallbackSlots(main, children);
         return;
+    }
 
     for (const LayoutWindowOut& out : committedLayout_.windows) {
         DemoWindowSlot slot;
@@ -179,8 +233,10 @@ void WindowLayoutManager::rebuildCommittedSlots(HWND main, const QVector<HWND>& 
 
         if (out.id == 0) {
             slot.hwnd = main;
-        } else if (out.id >= 1 && out.id <= children.size()) {
-            slot.hwnd = children[out.id - 1];
+        } else {
+            const int index = out.id - 1;
+            if (index >= 0 && index < children.size())
+                slot.hwnd = children[index];
         }
         if (!slot.hwnd || !IsWindow(slot.hwnd))
             continue;
@@ -279,16 +335,29 @@ QString WindowLayoutManager::layoutSummary() const
     if (!committedLayout_.ok)
         return QString();
 
-    QString summary = QStringLiteral("%1 行，第 1/%2 页")
-        .arg(committedLayout_.rowCount)
-        .arg(committedLayout_.pageCount);
-    if (committedLayout_.pageCount > 1)
-        summary += QStringLiteral("（其余子窗在第 2 页及以后）");
-    return summary;
+    const int childSlots = std::max(0, committedSlots_.size() - 1);
+    if (childSlots <= 0)
+        return QStringLiteral("仅主窗，contain 居中填满画布");
+
+    const int childPercent = static_cast<int>(DemoChildPreset::kChildWidthRatioTotal * 100 / childSlots);
+    return QStringLiteral("1 行：主窗 60%%，%1 个子窗各 %2%%，槽内 contain 居中")
+        .arg(childSlots)
+        .arg(childPercent);
 }
 
 QVector<DemoWindowSlot> WindowLayoutManager::windowSlots() const
 {
     QMutexLocker lock(&mutex_);
     return committedSlots_;
+}
+
+int WindowLayoutManager::pendingWindowCount() const
+{
+    QMutexLocker lock(&mutex_);
+    int count = (mainHwnd_ && IsWindow(mainHwnd_)) ? 1 : 0;
+    for (HWND hwnd : pendingChildren_) {
+        if (hwnd && IsWindow(hwnd))
+            ++count;
+    }
+    return count;
 }

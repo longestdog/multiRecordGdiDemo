@@ -6,21 +6,14 @@ struct LayoutConfig {
     int canvasW = 1920;
     int canvasH = 1080;
     int slotGap = 0;
-    bool dynamicUpscale = false;
-    bool paginateWhenChildGt5 = true;
-    int maxRows = 3;
-    float mainRowHeightRatio = 0.65f;
-    int maxUpscaleW = 3840;
-    int maxUpscaleH = 2160;
-    float minScaleHardFloor = 0.5f;
-    int maxChildrenPerPage = 5;
+    float mainWidthRatio = 0.60f;
+    float childWidthRatioTotal = 0.40f;
 };
 
 struct LayoutWindowIn {
     int id = 0;
     int srcW = 0;
     int srcH = 0;
-    float minScale = 0.6f;
     int priority = 0;
 };
 
@@ -49,7 +42,6 @@ struct LayoutResult {
 
 namespace LayoutSolver {
 
-int minSlotWidth(int srcW, int srcH, float minScale, int rowH);
 void containInSlot(int srcW, int srcH, int slotX, int slotY, int slotW, int slotH,
     int& drawX, int& drawY, int& drawW, int& drawH, float& scale);
 

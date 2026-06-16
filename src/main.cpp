@@ -99,13 +99,16 @@ int main(int argc, char* argv[])
 
     const auto syncCanvasUi = [&]() {
         const QSize canvas = layoutManager.canvasSize();
-        const int count = layoutManager.windowSlots().size();
+        const bool layoutReady = canvas.isValid();
+        const int count = layoutReady
+            ? layoutManager.windowSlots().size()
+            : layoutManager.pendingWindowCount();
         mainWin.setCanvasInfo(
-            canvas,
+            layoutReady ? canvas : QSize(WindowLayoutManager::kCanvasWidth, WindowLayoutManager::kCanvasHeight),
             count,
-            layoutManager.rowCount(),
-            layoutManager.pageCount(),
-            layoutManager.layoutSummary());
+            layoutReady ? layoutManager.rowCount() : 0,
+            layoutReady ? layoutManager.pageCount() : 0,
+            layoutReady ? layoutManager.layoutSummary() : QStringLiteral("布局计算中…"));
     };
 
     const auto commitLayout = [&]() {
@@ -113,18 +116,24 @@ int main(int argc, char* argv[])
         syncCanvasUi();
     };
 
+    const auto scheduleLayoutSync = [&](int delayMs = 0) {
+        QTimer::singleShot(delayMs, &app, [&]() {
+            syncPendingLayout();
+            commitLayout();
+        });
+    };
+
     QTimer layoutDebounce;
     layoutDebounce.setSingleShot(true);
     layoutDebounce.setInterval(kLayoutDebounceMs);
     QObject::connect(&layoutManager, &WindowLayoutManager::pendingChanged, &app, [&]() {
+        syncCanvasUi();
         layoutDebounce.start();
     });
     QObject::connect(&layoutDebounce, &QTimer::timeout, &app, commitLayout);
 
-    QTimer::singleShot(300, &app, [&]() {
-        syncPendingLayout();
-        commitLayout();
-    });
+    scheduleLayoutSync(0);
+    scheduleLayoutSync(300);
 
     QLabel preview;
     preview.setWindowTitle(QStringLiteral("GDI 合成预览"));
@@ -204,7 +213,7 @@ int main(int argc, char* argv[])
             childWins[index] = nullptr;
             childOpen[index] = false;
             mainWin.setWebViewOpen(childId, false);
-            syncPendingLayout();
+            scheduleLayoutSync(0);
             return;
         }
 
@@ -221,16 +230,17 @@ int main(int argc, char* argv[])
             childOpen[index] = false;
             mainWin.setWebViewOpen(childId, false);
             childWins[index] = nullptr;
-            syncPendingLayout();
+            scheduleLayoutSync(0);
         });
-        syncPendingLayout();
+        scheduleLayoutSync(0);
+        scheduleLayoutSync(200);
     });
 
     QObject::connect(&mainWin, &MainWindow::startRecordRequested, &app, [&]() {
         commitLayout();
         const QString fileName = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
         const QString outPath = QDir(app.applicationDirPath()).filePath(
-            QStringLiteral("output/composite_%1.mp4").arg(fileName));
+            QStringLiteral("output/composite_%1.flv").arg(fileName));
         recorder.startRecording(outPath, 10);
     });
 

@@ -7,9 +7,10 @@
 #include <QSize>
 #include <QString>
 #include <atomic>
-#include <chrono>
 #include <thread>
 #include <vector>
+
+class QTimer;
 
 class CompositeRecorder : public QObject
 {
@@ -39,28 +40,28 @@ private:
         std::vector<uint8_t> bgra;
     };
 
-    bool openAvi(const QString& path, int width, int height, int fps);
-    bool writeAviFrame(const std::vector<uint8_t>& bgra, int contentWidth, int contentHeight);
-    void closeAvi();
-    bool flushBufferedFramesToAvi(const QString& aviPath);
-    QString encodeToH264Mp4(const QString& aviPath, const QString& mp4Path);
-    QString aviTempPathFor(const QString& finalPath) const;
-    void recordLoop(int fps);
-    void sleepUntilNextFrame(const std::chrono::steady_clock::time_point& frameStart, int fps);
+    void captureTick();
+    void finalizeRecording(QString outputPath, int fps, std::vector<BufferedFrame> frames);
+
+    static bool openAvi(void** aviFile, void** aviStream, long* frameIndex, int* aviWidth, int* aviHeight,
+        const QString& path, int width, int height, int fps);
+    static void closeAvi(void** aviFile, void** aviStream);
+    static bool writeAviFrame(void* aviStream, long* frameIndex, int aviWidth, int aviHeight,
+        const std::vector<uint8_t>& bgra, int contentWidth, int contentHeight);
+    static bool flushFramesToAvi(const QString& aviPath, int fps, const std::vector<BufferedFrame>& frames);
+    static QString encodeToFlv(const QString& aviPath, const QString& flvPath, QString* errorOut);
+    static QString aviTempPathFor(const QString& finalPath);
 
     WindowLayoutManager* layout_ = nullptr;
     GdiCompositeCapturer capturer_;
-    std::thread worker_;
+    QTimer* captureTimer_ = nullptr;
+    std::thread finalizeThread_;
+
     std::atomic_bool recording_{ false };
-    std::atomic_bool userStopRequested_{ false };
+    std::atomic_bool finalizing_{ false };
 
     std::vector<BufferedFrame> bufferedFrames_;
+    QString activeLayoutKey_;
     int recordFps_ = 10;
-
-    void* aviFile_ = nullptr;
-    void* aviStream_ = nullptr;
-    long aviFrameIndex_ = 0;
-    int aviWidth_ = 0;
-    int aviHeight_ = 0;
     QString outputPath_;
 };

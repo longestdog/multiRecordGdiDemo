@@ -1,6 +1,8 @@
 ﻿#include "MainWindow.h"
 #include "WindowLayout.h"
 
+#include <QGridLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QLabel>
@@ -14,8 +16,9 @@
 MainWindow::MainWindow(QWidget* parent)
     : QWidget(parent)
 {
-    setWindowTitle(QStringLiteral("multiRecordGdiDemo - 主窗 (QWidget)"));
-    resize(640, 480);
+    setWindowTitle(QStringLiteral("multiRecordGdiDemo - 主窗 (6 WebView)"));
+    resize(720, 580);
+    setMinimumSize(680, 520);
     setAttribute(Qt::WA_NativeWindow);
     setStyleSheet(QStringLiteral("background-color: #1a1a2e; color: #eaeaea;"));
 
@@ -27,9 +30,9 @@ MainWindow::MainWindow(QWidget* parent)
     layout->addWidget(title);
 
     auto* hint = new QLabel(
-        QStringLiteral("固定画布 1920×1080；LayoutSolver 按 minScale/priority 自动排版（单行→多行→分页）。\n"
-                       "合成 contain 完整显示、不裁剪；slotGap=0。\n"
-                       "子窗开关 500ms 防抖后重排槽位，录制不中断。停止后 ffmpeg 编码 H.264 MP4。"),
+        QStringLiteral("固定画布 1920×1080；仅主窗时 contain 居中填满；多窗时主窗 60%%、子窗均分 40%%，间距 0。\n"
+                       "槽内 contain 居中，不裁剪。\n"
+                       "子窗开关 500ms 防抖后重排槽位，录制不中断。停止后 ffmpeg 编码 H.264 FLV。"),
         this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -37,22 +40,26 @@ MainWindow::MainWindow(QWidget* parent)
     canvasLabel_ = new QLabel(QStringLiteral("画布：-"), this);
     layout->addWidget(canvasLabel_);
 
+    auto* childGroup = new QGroupBox(QStringLiteral("测试子窗（共 6 个 WebView）"), this);
+    auto* childGrid = new QGridLayout(childGroup);
+    childGrid->setHorizontalSpacing(8);
+    childGrid->setVerticalSpacing(8);
     for (int row = 0; row < 2; ++row) {
-        auto* childRow = new QHBoxLayout();
         for (int col = 0; col < 3; ++col) {
             const int childId = row * 3 + col + 1;
             auto* btn = new QPushButton(
-                QStringLiteral("打开 %1").arg(DemoChildPreset::label(childId)), this);
+                QStringLiteral("打开 %1").arg(DemoChildPreset::label(childId)), childGroup);
+            btn->setMinimumHeight(36);
             webViewBtns_[childId - 1] = btn;
             connect(btn, &QPushButton::clicked, this, [this, childId]() {
                 emit toggleWebViewRequested(childId);
             });
-            childRow->addWidget(btn);
+            childGrid->addWidget(btn, row, col);
         }
-        layout->addLayout(childRow);
     }
+    layout->addWidget(childGroup);
 
-    layout->addStretch();
+    layout->addStretch(1);
 
     statusLabel_ = new QLabel(QStringLiteral("状态：就绪"), this);
     layout->addWidget(statusLabel_);
@@ -75,9 +82,9 @@ HWND MainWindow::nativeHandle() const
 {
 #ifdef Q_OS_WIN
     auto* self = const_cast<MainWindow*>(this);
-    if (self->windowHandle())
-        return reinterpret_cast<HWND>(self->winId());
-    return nullptr;
+    if (!self->testAttribute(Qt::WA_WState_Created))
+        self->winId();
+    return reinterpret_cast<HWND>(self->winId());
 #else
     return nullptr;
 #endif
@@ -104,8 +111,6 @@ void MainWindow::setCanvasInfo(const QSize& canvasSize, int windowCount, int row
         .arg(windowCount);
     if (rowCount > 0)
         text += QStringLiteral("，%1 行").arg(rowCount);
-    if (pageCount > 0)
-        text += QStringLiteral("，1/%1 页").arg(pageCount);
     text += QLatin1Char(')');
     if (!layoutSummary.isEmpty())
         text += QStringLiteral("\n排版：%1").arg(layoutSummary);

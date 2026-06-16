@@ -23,7 +23,10 @@ WebViewWindow::WebViewWindow(const QString& title, const QUrl& url)
 
 HWND WebViewWindow::nativeHandle() const
 {
-    return reinterpret_cast<HWND>(winId());
+    auto* self = const_cast<WebViewWindow*>(this);
+    if (!self->handle())
+        self->create();
+    return reinterpret_cast<HWND>(self->winId());
 }
 
 void WebViewWindow::placeRightOf(HWND anchor, int spacing)

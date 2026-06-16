@@ -18,11 +18,11 @@
 
 struct DemoChildPreset {
     static constexpr int kMaxChildren = 6;
-    static constexpr float kMainMinScale = 0.80f;
+    static constexpr float kMainWidthRatio = 0.60f;
+    static constexpr float kChildWidthRatioTotal = 0.40f;
 
     static QString label(int childId);
     static QSize defaultSize(int childId);
-    static float minScale(int childId);
     static int priority(int childId);
 };
 
@@ -60,6 +60,8 @@ public:
     int pageCount() const;
     QString layoutSummary() const;
 
+    int pendingWindowCount() const;
+
     bool hasPendingChanges() const;
 
 signals:
@@ -71,6 +73,7 @@ private:
     QString layoutKeyFor(HWND main, const QVector<HWND>& children) const;
     LayoutResult computeLayout(HWND main, const QVector<HWND>& children) const;
     void rebuildCommittedSlots(HWND main, const QVector<HWND>& children);
+    void buildFallbackSlots(HWND main, const QVector<HWND>& children);
 
     mutable QMutex mutex_;
 
