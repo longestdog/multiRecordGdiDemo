@@ -1,0 +1,13 @@
+﻿build/
+build*/
+*.vcxproj*
+*.sln
+*.user
+*.opt
+*.vs
+*debug
+*release
+*.stash
+*.autosave
+*.qtvscr
+*qmlcache*
