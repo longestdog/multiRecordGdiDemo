@@ -7,9 +7,8 @@ struct LayoutConfig {
     int canvasH = 1080;
     int slotGap = 0;
     float mainWidthRatio = 0.60f;
-    float mainAreaRatio = 0.60f;
+    float mainAreaRatioMulti = 0.55f;
     float childWidthRatioTotal = 0.40f;
-    float mainRowHeightRatio = 0.65f;
 };
 
 struct LayoutWindowIn {

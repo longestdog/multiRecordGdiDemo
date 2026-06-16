@@ -38,40 +38,56 @@ void flushRowToRight(QVector<WorkingWindow*>& rowSlots, int rowRight)
         last->slotW += rowRight - rowEnd;
 }
 
-void flushRowToBottom(QVector<WorkingWindow*>& rowSlots, int rowBottom)
-{
-    if (rowSlots.isEmpty())
-        return;
-    const int rowY = rowSlots.front()->slotY;
-    const int currentBottom = rowY + rowSlots.front()->slotH;
-    if (currentBottom < rowBottom) {
-        const int extra = rowBottom - currentBottom;
-        for (WorkingWindow* slot : rowSlots)
-            slot->slotH += extra;
-    }
-}
-
 int mainSlotWidthForArea(int canvasW, int canvasH, int rowH, float mainAreaRatio)
 {
     const int targetArea = static_cast<int>(std::ceil(mainAreaRatio * canvasW * canvasH));
     return std::max(1, std::min(canvasW, (targetArea + rowH - 1) / std::max(1, rowH)));
 }
 
-LayoutResult makeResult(const QVector<WorkingWindow>& windows, int cw, int ch)
+LayoutResult layoutSingleRow(
+    QVector<WorkingWindow>& working,
+    WorkingWindow& mainWin,
+    int cw,
+    int ch,
+    float mainAreaRatio)
 {
+    const int childCount = working.size() - 1;
+    int mainW = mainSlotWidthForArea(cw, ch, ch, mainAreaRatio);
+    mainW = std::min(mainW, cw - std::max(1, childCount));
+
+    const QVector<int> childWidths = splitWidth(cw - mainW, childCount);
+
+    mainWin.row = 0;
+    mainWin.slotX = 0;
+    mainWin.slotY = 0;
+    mainWin.slotW = mainW;
+    mainWin.slotH = ch;
+
+    QVector<WorkingWindow*> rowSlots;
+    rowSlots.append(&mainWin);
+
+    int x = mainW;
+    for (int i = 0; i < childCount; ++i) {
+        WorkingWindow& child = working[i + 1];
+        child.row = 0;
+        child.slotX = x;
+        child.slotY = 0;
+        child.slotW = childWidths[i];
+        child.slotH = ch;
+        rowSlots.append(&child);
+        x += child.slotW;
+    }
+    flushRowToRight(rowSlots, cw);
+
     LayoutResult result;
     result.canvasW = cw;
     result.canvasH = ch;
     result.ok = true;
     result.pageIndex = 0;
     result.pageCount = 1;
+    result.rowCount = 1;
 
-    int maxRow = 0;
-    for (const WorkingWindow& w : windows)
-        maxRow = std::max(maxRow, w.row);
-    result.rowCount = maxRow + 1;
-
-    for (const WorkingWindow& w : windows) {
+    for (const WorkingWindow& w : working) {
         LayoutWindowOut out;
         static_cast<LayoutWindowIn&>(out) = static_cast<const LayoutWindowIn&>(w);
         out.row = w.row;
@@ -143,92 +159,33 @@ LayoutResult compute(const QVector<LayoutWindowIn>& windows, const LayoutConfig&
         mainWin.slotY = 0;
         mainWin.slotW = cw;
         mainWin.slotH = ch;
-        return makeResult(working, cw, ch);
+
+        LayoutResult result;
+        result.canvasW = cw;
+        result.canvasH = ch;
+        result.ok = true;
+        result.pageIndex = 0;
+        result.pageCount = 1;
+        result.rowCount = 1;
+
+        LayoutWindowOut out;
+        static_cast<LayoutWindowIn&>(out) = static_cast<const LayoutWindowIn&>(mainWin);
+        out.row = mainWin.row;
+        out.slotX = mainWin.slotX;
+        out.slotY = mainWin.slotY;
+        out.slotW = mainWin.slotW;
+        out.slotH = mainWin.slotH;
+        containInSlot(
+            mainWin.srcW, mainWin.srcH, mainWin.slotX, mainWin.slotY, mainWin.slotW, mainWin.slotH,
+            out.drawX, out.drawY, out.drawW, out.drawH, out.scale);
+        result.windows.append(out);
+        return result;
     }
 
-    const int mainW = (cw * static_cast<int>(config.mainWidthRatio * 100 + 0.5f)) / 100;
+    if (childCount > 2)
+        return layoutSingleRow(working, mainWin, cw, ch, config.mainAreaRatioMulti);
 
-    if (childCount <= 2) {
-        const int childTotalW = cw - mainW;
-        const QVector<int> childWidths = splitWidth(childTotalW, childCount);
-
-        mainWin.row = 0;
-        mainWin.slotX = 0;
-        mainWin.slotY = 0;
-        mainWin.slotW = mainW;
-        mainWin.slotH = ch;
-
-        QVector<WorkingWindow*> rowSlots;
-        rowSlots.append(&mainWin);
-
-        int x = mainW;
-        for (int i = 0; i < childCount; ++i) {
-            WorkingWindow& child = working[i + 1];
-            child.row = 0;
-            child.slotX = x;
-            child.slotY = 0;
-            child.slotW = childWidths[i];
-            child.slotH = ch;
-            rowSlots.append(&child);
-            x += child.slotW;
-        }
-        flushRowToRight(rowSlots, cw);
-        return makeResult(working, cw, ch);
-    }
-
-    int row0H = std::max(1, static_cast<int>(std::round(ch * config.mainRowHeightRatio)));
-    row0H = std::min(row0H, ch);
-    const int row1H = ch - row0H;
-    const int topChildCount = 2;
-    const int bottomChildCount = childCount - topChildCount;
-
-    int mainWMulti = mainSlotWidthForArea(cw, ch, row0H, config.mainAreaRatio);
-    const int minTopChildStrip = topChildCount;
-    mainWMulti = std::min(mainWMulti, cw - minTopChildStrip);
-
-    mainWin.row = 0;
-    mainWin.slotX = 0;
-    mainWin.slotY = 0;
-    mainWin.slotW = mainWMulti;
-    mainWin.slotH = row0H;
-
-    QVector<WorkingWindow*> row0Slots;
-    row0Slots.append(&mainWin);
-
-    const int topChildTotalW = cw - mainWMulti;
-    const QVector<int> topChildWidths = splitWidth(topChildTotalW, topChildCount);
-    int x = mainWMulti;
-    for (int i = 0; i < topChildCount; ++i) {
-        WorkingWindow& child = working[i + 1];
-        child.row = 0;
-        child.slotX = x;
-        child.slotY = 0;
-        child.slotW = topChildWidths[i];
-        child.slotH = row0H;
-        row0Slots.append(&child);
-        x += child.slotW;
-    }
-    flushRowToRight(row0Slots, cw);
-    flushRowToBottom(row0Slots, row0H);
-
-    const QVector<int> bottomChildWidths = splitWidth(cw, bottomChildCount);
-    const int row1Y = row0H;
-    QVector<WorkingWindow*> row1Slots;
-    x = 0;
-    for (int i = 0; i < bottomChildCount; ++i) {
-        WorkingWindow& child = working[i + 1 + topChildCount];
-        child.row = 1;
-        child.slotX = x;
-        child.slotY = row1Y;
-        child.slotW = bottomChildWidths[i];
-        child.slotH = row1H;
-        row1Slots.append(&child);
-        x += child.slotW;
-    }
-    flushRowToRight(row1Slots, cw);
-    flushRowToBottom(row1Slots, ch);
-
-    return makeResult(working, cw, ch);
+    return layoutSingleRow(working, mainWin, cw, ch, config.mainWidthRatio);
 }
 
 } // namespace LayoutSolver

@@ -143,8 +143,7 @@ LayoutResult WindowLayoutManager::computeLayout(HWND main, const QVector<HWND>& 
     config.canvasH = kCanvasHeight;
     config.slotGap = kChildSpacing;
     config.mainWidthRatio = DemoChildPreset::kMainWidthRatio;
-    config.mainAreaRatio = DemoChildPreset::kMainAreaRatio;
-    config.mainRowHeightRatio = DemoChildPreset::kMainRowHeightRatio;
+    config.mainAreaRatioMulti = DemoChildPreset::kMainAreaRatioMulti;
     config.childWidthRatioTotal = DemoChildPreset::kChildWidthRatioTotal;
     return LayoutSolver::compute(inputs, config);
 }
@@ -183,100 +182,47 @@ void WindowLayoutManager::buildFallbackSlots(HWND main, const QVector<HWND>& chi
         return;
     }
 
-    const int mainW = (kCanvasWidth * static_cast<int>(DemoChildPreset::kMainWidthRatio * 100)) / 100;
+    const float mainAreaRatio = (childCount <= 2)
+        ? DemoChildPreset::kMainWidthRatio
+        : DemoChildPreset::kMainAreaRatioMulti;
+    const int targetArea = static_cast<int>(std::ceil(mainAreaRatio * kCanvasWidth * kCanvasHeight));
+    int mainW = std::max(1, std::min(kCanvasWidth - childCount, (targetArea + kCanvasHeight - 1) / kCanvasHeight));
 
-    if (childCount <= 2) {
-        const int childTotalW = kCanvasWidth - mainW;
-        const QVector<int> childWidths = [&]() {
-            QVector<int> widths;
-            widths.resize(childCount);
-            const int base = childTotalW / childCount;
-            const int rem = childTotalW % childCount;
-            for (int i = 0; i < childCount; ++i)
-                widths[i] = base + (i < rem ? 1 : 0);
-            return widths;
-        }();
-
-        DemoWindowSlot mainSlot;
-        mainSlot.windowId = 0;
-        mainSlot.hwnd = main;
-        mainSlot.slotX = 0;
-        mainSlot.slotY = 0;
-        mainSlot.slotWidth = mainW;
-        mainSlot.slotHeight = kCanvasHeight;
-        committedSlots_.append(mainSlot);
-
-        int x = mainW;
-        for (int i = 0; i < childCount; ++i) {
-            DemoWindowSlot slot;
-            slot.windowId = i + 1;
-            slot.hwnd = childHwnds[i];
-            slot.slotX = x;
-            slot.slotY = 0;
-            slot.slotWidth = childWidths[i];
-            slot.slotHeight = kCanvasHeight;
-            committedSlots_.append(slot);
-            x += childWidths[i];
-        }
-
-        committedLayout_.ok = true;
-        committedLayout_.rowCount = 1;
-        return;
-    }
-
-    const int row0H = std::max(1, static_cast<int>(kCanvasHeight * DemoChildPreset::kMainRowHeightRatio + 0.5f));
-    const int row1H = kCanvasHeight - row0H;
-    const int targetMainArea = static_cast<int>(DemoChildPreset::kMainAreaRatio * kCanvasWidth * kCanvasHeight + 0.5f);
-    int mainWMulti = std::max(1, std::min(kCanvasWidth - 2, (targetMainArea + row0H - 1) / row0H));
-    const int topChildTotalW = kCanvasWidth - mainWMulti;
-    const int topChildW = topChildTotalW / 2;
-    const int topChildRem = topChildTotalW % 2;
+    const int childTotalW = kCanvasWidth - mainW;
+    const QVector<int> childWidths = [&]() {
+        QVector<int> widths;
+        widths.resize(childCount);
+        const int base = childTotalW / childCount;
+        const int rem = childTotalW % childCount;
+        for (int i = 0; i < childCount; ++i)
+            widths[i] = base + (i < rem ? 1 : 0);
+        return widths;
+    }();
 
     DemoWindowSlot mainSlot;
     mainSlot.windowId = 0;
     mainSlot.hwnd = main;
-    mainSlot.row = 0;
     mainSlot.slotX = 0;
     mainSlot.slotY = 0;
-    mainSlot.slotWidth = mainWMulti;
-    mainSlot.slotHeight = row0H;
+    mainSlot.slotWidth = mainW;
+    mainSlot.slotHeight = kCanvasHeight;
     committedSlots_.append(mainSlot);
 
-    int x = mainWMulti;
-    for (int i = 0; i < 2; ++i) {
-        const int slotW = topChildW + (i < topChildRem ? 1 : 0);
+    int x = mainW;
+    for (int i = 0; i < childCount; ++i) {
         DemoWindowSlot slot;
         slot.windowId = i + 1;
         slot.hwnd = childHwnds[i];
-        slot.row = 0;
         slot.slotX = x;
         slot.slotY = 0;
-        slot.slotWidth = slotW;
-        slot.slotHeight = row0H;
+        slot.slotWidth = childWidths[i];
+        slot.slotHeight = kCanvasHeight;
         committedSlots_.append(slot);
-        x += slotW;
-    }
-
-    const int bottomCount = childCount - 2;
-    const int bottomBaseW = kCanvasWidth / bottomCount;
-    const int bottomRem = kCanvasWidth % bottomCount;
-    x = 0;
-    for (int i = 0; i < bottomCount; ++i) {
-        const int slotW = bottomBaseW + (i < bottomRem ? 1 : 0);
-        DemoWindowSlot slot;
-        slot.windowId = i + 3;
-        slot.hwnd = childHwnds[i + 2];
-        slot.row = 1;
-        slot.slotX = x;
-        slot.slotY = row0H;
-        slot.slotWidth = slotW;
-        slot.slotHeight = row1H;
-        committedSlots_.append(slot);
-        x += slotW;
+        x += childWidths[i];
     }
 
     committedLayout_.ok = true;
-    committedLayout_.rowCount = 2;
+    committedLayout_.rowCount = 1;
 }
 
 void WindowLayoutManager::rebuildCommittedSlots(HWND main, const QVector<HWND>& children)
@@ -412,9 +358,10 @@ QString WindowLayoutManager::layoutSummary() const
             .arg(childPercent);
     }
 
-    const int bottomCount = childSlots - 2;
-    return QStringLiteral("2 行：主窗槽位面积 60%%，前 2 子窗右上并排；第 2 排 %1 个子窗均分整行")
-        .arg(bottomCount);
+    const int childPercent = static_cast<int>((1.f - DemoChildPreset::kMainAreaRatioMulti) * 100 / childSlots);
+    return QStringLiteral("1 行：主窗面积 55%%，%1 个子窗均分剩余 45%%（各约 %2%%），槽内 contain 居中")
+        .arg(childSlots)
+        .arg(childPercent);
 }
 
 QVector<DemoWindowSlot> WindowLayoutManager::windowSlots() const
